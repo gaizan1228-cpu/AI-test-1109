@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>麻雀多面待ちトレーニング</title>
+<style>
+:root{--bg:#14532d;--bg2:#0f3d21;--fg:#f0fdf4;--accent:#facc15;--ok:#4ade80;--ng:#f87171;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:radial-gradient(circle at 50% 30%,var(--bg),var(--bg2));color:var(--fg);font-family:"Hiragino Sans","Yu Gothic",Meiryo,sans-serif}
+.screen{display:none;max-width:860px;margin:0 auto;padding:24px 16px;text-align:center}
+.screen.on{display:block}
+h1{font-size:clamp(26px,5vw,40px);margin:60px 0 12px}
+p.sub{opacity:.85;line-height:1.8}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:12px 28px;font-size:18px;font-weight:700;background:var(--accent);color:#3b2f00;margin:6px}
+button.sec{background:#e2e8f0;color:#1e293b}
+button:disabled{opacity:.4;cursor:default}
+.bar{display:flex;justify-content:space-between;align-items:center;font-size:20px;font-weight:700;margin-bottom:8px}
+.time.low{color:var(--ng)}
+.gauge{height:8px;background:#0006;border-radius:4px;overflow:hidden;margin-bottom:20px}
+.gauge i{display:block;height:100%;width:100%;background:var(--accent)}
+.row{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin:10px 0}
+.tile{width:48px;height:66px;margin-bottom:8px;background:linear-gradient(160deg,#fffff6,#f3ecd3 70%,#e6dcba);border-radius:7px;border:1px solid #cfc49c;box-shadow:inset 0 0 0 2px #fffdf0,0 4px 0 #2e8b57,0 6px 0 #1f6b43,0 9px 6px #0007;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#1a1a1a;font-family:"Hiragino Mincho ProN","Yu Mincho","MS PMincho",serif;font-weight:900;line-height:1.05;user-select:none}
+.tile .a{font-size:26px}.tile .b{font-size:19px;color:#c62828}
+.tile.h .a{font-size:34px}
+.tile.red .a{color:#c62828}.tile.grn .a{color:#15803d}
+.tile.wht .a{width:30px;height:44px;border:3px solid #1d4ed8;border-radius:3px;font-size:0}
+.pick .tile{cursor:pointer;transition:transform .1s}
+.pick .tile:hover{transform:translateY(-3px)}
+.pick .tile.sel{background:#fde68a;transform:translateY(-8px);outline:3px solid var(--accent)}
+.label{margin-top:22px;font-size:15px;opacity:.85}
+.msg{min-height:30px;font-size:20px;font-weight:700;margin:12px 0}
+.msg.ok{color:var(--ok)}.msg.ng{color:var(--ng)}
+.big{font-size:28px;font-weight:700;margin:40px 0 10px}
+</style>
+</head>
+<body>
+
+<section id="s-start" class="screen on">
+  <h1>🀄 麻雀多面待ちトレーニング</h1>
+  <p class="sub">7枚の手牌からアガリ牌（待ち牌）をすべて選ぼう。<br>
+  3問正解でクリア ／ 制限時間60秒 ／ 不正解は−5秒<br>
+  手牌は萬子と字牌のみ（七対子・国士無双なし）</p>
+  <button id="btn-start">スタート</button>
+</section>
+
+<section id="s-play" class="screen">
+  <div class="bar"><span id="q">第1問 / 3</span><span class="time" id="time">60.0</span></div>
+  <div class="gauge"><i id="gauge"></i></div>
+  <div class="label">手牌（7枚）</div>
+  <div class="row" id="hand"></div>
+  <div class="label">待ち牌をすべて選んでください（クリックで選択／解除）</div>
+  <div class="row pick" id="pick"></div>
+  <div class="msg" id="msg"></div>
+  <button id="btn-ans" disabled>回答</button>
+  <button class="sec" id="btn-skip">スキップ（次の問題へ）</button>
+</section>
+
+<section id="s-result" class="screen">
+  <div class="big" id="r-title"></div>
+  <p class="sub" id="r-detail"></p>
+  <button id="btn-again">もう一度</button>
+  <button class="sec" id="btn-title">タイトルへ</button>
+</section>
+
+<script>
+const NAMES=["一","二","三","四","五","六","七","八","九","東","南","西","北","白","發","中"];
+const TOTAL=3, LIMIT=60, PENALTY=5;
+const $=id=>document.getElementById(id);
+
+function tileEl(i,cls){
+  const d=document.createElement("div");
+  d.className="tile"+(i>=9?" h":"")+(i===15?" red":"")+(i===14?" grn":"")+(i===13?" wht":"");
+  d.innerHTML=i<9?`<span class="a">${NAMES[i]}</span><span class="b">萬</span>`:`<span class="a">${i===13?"白":NAMES[i]}</span>`;
+  if(cls)d.classList.add(cls);
+  return d;
+}
+
+// 和了判定（4面子+1雀頭）
+function melds(c){
+  let i=0;while(i<16&&c[i]===0)i++;
+  if(i===16)return true;
+  if(c[i]>=3){c[i]-=3;const r=melds(c);c[i]+=3;if(r)return true;}
+  if(i<7&&c[i+1]>0&&c[i+2]>0){c[i]--;c[i+1]--;c[i+2]--;const r=melds(c);c[i]++;c[i+1]++;c[i+2]++;if(r)return true;}
+  return false;
+}
+function canWin(c){
+  for(let i=0;i<16;i++)if(c[i]>=2){c[i]-=2;const r=melds(c);c[i]+=2;if(r)return true;}
+  return false;
+}
+function waits(c){
+  const w=[];
+  for(let i=0;i<16;i++){
+    if(c[i]>=4)continue;
+    c[i]++;if(canWin(c))w.push(i);c[i]--;
+  }
+  return w;
+}
+const rnd=n=>Math.floor(Math.random()*n);
+
+function makeQuestion(){
+  for(let t=0;t<5000;t++){
+    const c=Array(16).fill(0);let ok=true;
+    for(let m=0;m<2&&ok;m++){
+      if(Math.random()<0.7){const s=rnd(7);c[s]++;c[s+1]++;c[s+2]++;}
+      else c[rnd(16)]+=3;
+    }
+    c[rnd(16)]+=2;
+    if(c.some(v=>v>4))continue;
+    // 1枚抜いて7枚に
+    const have=[];c.forEach((v,i)=>{if(v>0)have.push(i)});
+    c[have[rnd(have.length)]]--;
+    if(c.reduce((a,b)=>a+b)!==7)continue;
+    const w=waits(c);
+    if(w.length<1||w.length>4)continue;
+    if(w.length===1&&Math.random()>0.2)continue;
+    const hand=[];c.forEach((v,i)=>{for(let k=0;k<v;k++)hand.push(i)});
+    return {hand,waits:w};
+  }
+}
+
+let state;
+function show(id){document.querySelectorAll(".screen").forEach(s=>s.classList.toggle("on",s.id===id));}
+
+function start(){
+  state={solved:0,deadline:performance.now()+LIMIT*1000,locked:false,over:false,startedAt:performance.now()};
+  show("s-play");
+  nextQuestion();
+  state.timer=setInterval(tick,50);
+  tick();
+}
+function nextQuestion(){
+  state.q=makeQuestion();state.sel=new Set();state.locked=false;
+  $("q").textContent=`第${state.solved+1}問 / ${TOTAL}`;
+  $("msg").textContent="";$("msg").className="msg";
+  const h=$("hand");h.innerHTML="";
+  state.q.hand.forEach(i=>h.appendChild(tileEl(i)));
+  const p=$("pick");p.innerHTML="";
+  for(let i=0;i<16;i++){
+    const e=tileEl(i);
+    e.onclick=()=>{
+      if(state.locked)return;
+      state.sel.has(i)?state.sel.delete(i):state.sel.add(i);
+      e.classList.toggle("sel",state.sel.has(i));
+      $("btn-ans").disabled=state.sel.size===0;
+    };
+    p.appendChild(e);
+  }
+  $("btn-ans").disabled=true;
+}
+function tick(){
+  const left=state.deadline-performance.now();
+  if(left<=0){$("time").textContent="0.0";return finish(false);}
+  $("time").textContent=(left/1000).toFixed(1);
+  $("time").classList.toggle("low",left<10000);
+  $("gauge").style.width=Math.min(100,left/(LIMIT*10))+"%";
+}
+function answer(){
+  if(state.locked||state.over)return;
+  const w=state.q.waits;
+  const ok=w.length===state.sel.size&&w.every(i=>state.sel.has(i));
+  state.locked=true;
+  const m=$("msg");
+  if(ok){
+    state.solved++;
+    m.className="msg ok";
+    m.textContent="⭕ 正解！ 待ち："+w.map(i=>NAMES[i]+(i<9?"萬":"")).join("・");
+    setTimeout(()=>{ if(state.over)return; state.solved>=TOTAL?finish(true):nextQuestion(); },1100);
+  }else{
+    state.deadline-=PENALTY*1000;
+    m.className="msg ng";
+    m.textContent=`❌ 不正解… −${PENALTY}秒。もう一度考えよう`;
+    state.sel.clear();
+    document.querySelectorAll("#pick .tile").forEach(e=>e.classList.remove("sel"));
+    $("btn-ans").disabled=true;
+    setTimeout(()=>{state.locked=false;},500);
+  }
+}
+function skip(){
+  if(state.locked||state.over)return;
+  state.locked=true;
+  const m=$("msg");m.className="msg";
+  m.textContent="⏭ スキップ　正解は："+state.q.waits.map(i=>NAMES[i]+(i<9?"萬":"")).join("・");
+  $("btn-ans").disabled=true;
+  setTimeout(()=>{if(!state.over)nextQuestion();},1500);
+}
+function finish(clear){
+  if(state.over)return;
+  state.over=true;clearInterval(state.timer);
+  const used=Math.min(LIMIT,(performance.now()-state.startedAt)/1000);
+  if(clear){
+    const left=Math.max(0,(state.deadline-performance.now())/1000);
+    $("r-title").textContent="🎉 クリア！";
+    $("r-detail").innerHTML=`${TOTAL}問すべて正解しました。<br>残り時間：${left.toFixed(1)}秒`;
+  }else{
+    $("r-title").textContent="⏰ タイムオーバー";
+    $("r-detail").innerHTML=`正解数：${state.solved} / ${TOTAL}問`;
+  }
+  show("s-result");
+}
+$("btn-start").onclick=start;
+$("btn-ans").onclick=answer;
+$("btn-skip").onclick=skip;
+$("btn-again").onclick=start;
+$("btn-title").onclick=()=>show("s-start");
+</script>
+</body>
+</html>
